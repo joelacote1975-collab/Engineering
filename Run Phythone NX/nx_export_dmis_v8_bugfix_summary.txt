@@ -1,0 +1,103 @@
+==============================================================================
+  สรุปการแก้ไข Bug — nx_export_dmis_v8.py
+  วันที่แก้ไข : 2026-05-09
+==============================================================================
+
+Bug ที่แก้ไขทั้งหมด 3 จุด
+------------------------------------------------------------------------------
+
+[Bug 1] Memory Leak — uf.Evalsf ไม่ถูก Free หลังใช้งาน
+  ไฟล์    : nx_export_dmis_v8.py
+  ฟังก์ชัน : get_normal_for_point()
+  บรรทัด  : 79-85
+
+  ปัญหา:
+    uf.Evalsf.Initialize(face_tag) สร้าง evaluator object ขึ้นมาทุก face
+    แต่ไม่เคยเรียก uf.Evalsf.Free(ev) เพื่อคืนหน่วยความจำ
+    ทำให้ NX กินหน่วยความจำเพิ่มขึ้นเรื่อยๆ และอาจ crash บนโมเดลที่มีหลาย face
+
+  การแก้ไข:
+    เพิ่ม try/finally block เพื่อเรียก uf.Evalsf.Free(ev) ทุกครั้ง
+    ไม่ว่าจะสำเร็จหรือเกิด exception ก็ตาม
+
+  โค้ดก่อนแก้:
+    except Exception:
+        continue
+
+  โค้ดหลังแก้:
+    except Exception:
+        pass
+    finally:
+        if ev is not None:
+            try:
+                uf.Evalsf.Free(ev)
+            except Exception:
+                pass
+
+------------------------------------------------------------------------------
+
+[Bug 2] Performance — สร้าง Face List ซ้ำทุกครั้งที่เรียกหา Normal
+  ไฟล์    : nx_export_dmis_v8.py
+  ฟังก์ชัน : get_normal_for_point() และ main()
+  บรรทัด  : 33-42, 165
+
+  ปัญหา:
+    ฟังก์ชัน get_normal_for_point() เดิมรับ work_part แล้ววน work_part.Bodies
+    ทุกครั้งที่ถูกเรียก ทำให้สร้าง face list ใหม่ซ้ำทุก point
+    ตัวอย่าง: 100 points x 500 faces = วน 50,000 ครั้งโดยไม่จำเป็น
+
+  การแก้ไข:
+    เพิ่มฟังก์ชัน build_face_tags(work_part) สร้าง face tag list เพียงครั้งเดียว
+    แล้วส่ง face_tags list เข้า get_normal_for_point() แทน work_part
+    ทำให้ลดการวนซ้ำจาก O(points x faces) เป็น O(faces) สำหรับการ build
+
+  โค้ดที่เพิ่ม:
+    def build_face_tags(work_part):
+        tags = []
+        for body in work_part.Bodies:
+            try:
+                for face in body.GetFaces():
+                    tags.append(face.Tag)
+            except Exception:
+                continue
+        return tags
+
+------------------------------------------------------------------------------
+
+[Bug 3] DMIS Record Overflow — ค่าพิกัดขนาดใหญ่ทำให้บรรทัดเกิน 80 chars
+  ไฟล์    : nx_export_dmis_v8.py
+  ฟังก์ชัน : main() และ fmt_coord() (ฟังก์ชันใหม่)
+  บรรทัด  : 135-142, 249-250
+
+  ปัญหา:
+    Python format spec f"{val:9.3f}" รับประกันความกว้าง "อย่างน้อย" 9 chars
+    แต่ถ้าค่ามากกว่าที่กำหนด จะยาวเกินได้
+    ตัวอย่าง: -10000.000 = 10 chars (เกิน 9 chars)
+    ผลลัพธ์: record ยาวเกิน 80 chars → Quindos อ่านข้อมูลผิดพลาดโดยไม่แจ้งเตือน
+
+  เงื่อนไข overflow:
+    X, Y, Z ด้วย :9.3f  → overflow เมื่อ |val| >= 10000
+    U, V, W ด้วย :8.4f  → ปลอดภัย (unit vector อยู่ระหว่าง -1 ถึง 1 เสมอ)
+
+  การแก้ไข:
+    เพิ่มฟังก์ชัน fmt_coord(val, width, dec) ที่ลด decimal อัตโนมัติ
+    หากค่าใหญ่เกินกว่า field width ที่กำหนด
+
+  โค้ดที่เพิ่ม:
+    def fmt_coord(val, width=9, dec=3):
+        for d in range(dec, -1, -1):
+            s = f"{val:{width}.{d}f}"
+            if len(s) <= width:
+                return s
+        return f"{int(val)}"[:width].ljust(width)
+
+  โค้ดก่อนแก้:
+    f"{pt['x']:9.3f},{pt['y']:9.3f},{pt['z']:9.3f},"
+
+  โค้ดหลังแก้:
+    f"{fmt_coord(pt['x'],9,3)},{fmt_coord(pt['y'],9,3)},{fmt_coord(pt['z'],9,3)},"
+
+==============================================================================
+  ไฟล์ที่แก้ไข : nx_export_dmis_v8.py
+  แก้ไขโดย    : Claude Code (claude-sonnet-4-6)
+==============================================================================

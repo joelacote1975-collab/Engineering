@@ -1,0 +1,136 @@
+================================================================================
+  NX Export DMIS — Development Log
+  Script: nx_export_dmis_v8.py
+  วันที่: 2026-05-09
+================================================================================
+
+จุดประสงค์
+----------
+ดึงค่าจุด X Y Z และทิศทาง Normal (U V W / I J K) จาก NX
+แล้ว export เป็นไฟล์ DMIS format สำหรับให้ Quindos CMM อ่านผ่านคำสั่ง CNVFIL
+
+Output file : D:\CMM_Data\DMIS_export.txt
+Quindos cmd : CNVFIL (FIL=D:\CMM_Data\DMIS_export.txt)
+
+================================================================================
+  ประวัติการแก้ไข
+================================================================================
+
+── v7 (ก่อนเริ่มแก้) ──────────────────────────────────────────────────────────
+ปัญหาที่พบ:
+  1. ชื่อ Point ยาวกว่า 8 ตัวอักษรไม่ถูกตัด → ทำให้ format DMIS ผิด
+  2. Deduplication ใช้ชื่อเต็ม แต่ DMIS ใช้แค่ 8 ตัว → label ซ้ำในไฟล์
+  3. ความยาวบรรทัด data = 84 chars (เกิน DMIS standard 80 chars)
+  4. Header/End line = 81 chars
+  5. Comment line ไม่มี DMIS label (ควรเป็น $$ format)
+  6. Grid search วนทุก face ทุก point → ช้า (ไม่มี pre-filter)
+  7. UVW ออกมาเป็น (0,0,1) ทุกจุด → Normal ผิด
+
+── v8 (แก้ format issues) ──────────────────────────────────────────────────────
+แก้ไข:
+  [1] ตัดชื่อ label ด้วย name[:8] ทุกครั้ง
+  [2] Deduplication ทำบน 8-char label แทนชื่อเต็ม
+  [3] ลด padding ใน data line → 80 chars พอดี
+  [4] แก้ Header/End padding → 80 chars
+  [5] เปลี่ยน comment line เป็น $$ format
+  [6] เพิ่ม pre-filter: sort face ตาม distance → เอา top 50
+ผล: DMIS format ถูกต้อง แต่ UVW ยังเป็น (0,0,1) ทุกจุด
+
+── v8b (พยายามแก้ AskFaceProps) ───────────────────────────────────────────────
+สาเหตุที่สงสัย: AskFaceProps ส่ง UV ผิด signature (u, v แยก แทนที่จะเป็น [u,v])
+แก้ไข:
+  - เปลี่ยน AskFaceProps(face_tag, u, v) → AskFaceProps(face_tag, [u, v])
+  - ปรับ pre-filter ใช้ center UV evaluation แทน centroid
+  - เพิ่ม MAX_CANDIDATES เป็น 120
+ผล: ยังไม่ได้ผล — nearest dist=inf ทุกจุด
+
+── Diagnostic v1 ───────────────────────────────────────────────────────────────
+สร้าง nx_normal_debug.py เพื่อทดสอบ API
+ผลที่พบ:
+  AttributeError: 'NXOpen.UF.Modl' object has no attribute 'AskFaceData'
+  → uf.Modl ไม่มี AskFaceData / AskFaceProps ใน NX version นี้เลย
+  → นั่นคือสาเหตุที่แก้มาตลอดแต่ไม่ได้ผล
+
+── Diagnostic v2 ───────────────────────────────────────────────────────────────
+ตรวจสอบ dir(uf.Modl) และ dir(face object)
+ผลที่พบ:
+  - uf.Modl ไม่มี face evaluation methods เลย
+  - NXOpen.Face object ไม่มี Normal / Evaluate method
+  - พบ uf.Evalsf ใน submodule list → นี่คือ Surface Evaluator module
+
+── Diagnostic v3 ───────────────────────────────────────────────────────────────
+ทดสอบ uf.Evalsf methods
+ผลที่พบ:
+  uf.Evalsf methods:
+    AskFaceUvMinmax, AskMinimumFaceDist, Evaluate,
+    FindClosestPoint, FindClosestPoint2, Initialize, Initialize2, Pos3
+  - Initialize(face_tag) ทำงานได้ → คืน PointerWrapper
+  - Evaluate(order, [u,v]) ทำงานได้ → คืน ModlSrfvalue_Struct
+      .SrfPos, .SrfDu, .SrfDv, .SrfUnormal (ค่า garbage), .SrfD2u ฯลฯ
+  - SrfUnormal ไม่น่าเชื่อถือ → ต้องคำนวณ Normal จาก SrfDu × SrfDv เอง
+
+── Diagnostic v4 ───────────────────────────────────────────────────────────────
+ทดสอบ FindClosestPoint และ cross product normal
+ผลที่พบ:
+  FindClosestPoint(evaluator, [px,py,pz]) → EvalsfPos3_Struct
+    .Distance = ระยะห่างจาก query point ถึงจุดใกล้สุดบน face
+    .Uv       = [u, v] parameter ของจุดใกล้สุด
+    .Pnt3     = [x, y, z] พิกัด 3D ของจุดใกล้สุด
+  AskFaceUvMinmax(face_tag) → memory access violation (ห้ามใช้!)
+  Cross product normal ทำงานได้ถูกต้อง
+
+── v8c (สำเร็จ ✓) ──────────────────────────────────────────────────────────────
+แก้ไข:
+  - ลบ uf.Modl code ทั้งหมดออก
+  - ลบ Grid search ทั้งหมดออก
+  - ใช้ uf.Evalsf แทนทั้งหมด
+  Algorithm ใหม่ (3 บรรทัด):
+    ev  = uf.Evalsf.Initialize(face.Tag)
+    cp  = uf.Evalsf.FindClosestPoint(ev, [px, py, pz])  → .Distance, .Uv
+    srf = uf.Evalsf.Evaluate(ev, 1, cp.Uv)              → .SrfDu, .SrfDv
+    normal = normalize(SrfDu × SrfDv)
+  วนทุก face หา face ที่ cp.Distance น้อยสุด = face ที่ point อยู่บนนั้น
+
+ผลลัพธ์ที่ได้:
+  V1  ( 7.111, 12.738, -1.671)  N=(-0.2343,-0.2392, 0.9423)
+  V2  (27.083,  8.476, -0.067)  N=(-0.0486,-0.1979, 0.9790)
+  V3  (42.476, 10.090,  0.443)  N=( 0.0324,-0.2392, 0.9704)
+  V4  (20.538, -7.383,  0.163)  N=(-0.0539, 0.3086, 0.9497)
+  V5  (35.170, -5.974,  0.278)  N=(-0.0178, 0.2530, 0.9673)
+  V6  (47.721, -1.409, -0.561)  N=( 0.0263, 0.1157, 0.9929)
+  V7  (57.051,  5.772, -1.471)  N=( 0.1334,-0.0487, 0.9899)
+  nearest dist=0.0000 ทุกจุด ✓
+
+================================================================================
+  ไฟล์ในโปรเจกต์
+================================================================================
+
+  nx_export_dmis_v8.py   — script หลัก (version สำเร็จ)
+  nx_normal_debug.py     — diagnostic script (ใช้ตรวจสอบ API)
+
+================================================================================
+  หมายเหตุทางเทคนิค
+================================================================================
+
+NX version ที่ใช้ทดสอบ:
+  Part: 5-08978-740000_02_stp_objects.prt
+  Model: 1 body, 317 faces
+
+API ที่ใช้ได้จริงใน NX version นี้:
+  uf.Evalsf.Initialize(face_tag)
+  uf.Evalsf.FindClosestPoint(evaluator, point_list)
+  uf.Evalsf.Evaluate(evaluator, order, uv_list)
+  face.Tag, body.GetFaces()
+
+API ที่ไม่มีใน NX version นี้ (อย่าใช้):
+  uf.Modl.AskFaceData       → AttributeError
+  uf.Modl.AskFaceProps      → AttributeError
+  uf.Evalsf.AskFaceUvMinmax → memory access violation
+
+DMIS record format (80 chars ไม่นับ newline):
+  HEADER:  POINTS  =HEADER/1{55 spaces}00000000
+  COMMENT: $$      {comment 64 chars}00000000
+  DATA:    {label 8}=MDI/1, {x(9)},{y(9)},{z(9)},{u(8)},{v(8)},{w(8)}{seq 8}
+  END:     POINTS  =END{60 spaces}00000000
+
+================================================================================
