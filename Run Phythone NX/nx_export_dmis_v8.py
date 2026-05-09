@@ -263,7 +263,7 @@ def main():
             )
         lw.WriteFullline(f"\n  File: {OUTPUT_PATH}")
         lw.WriteFullline("=" * 68)
-        lw.WriteFullline(f"  Quindos: CNVFIL (FIL={OUTPUT_PATH})")
+        lw.WriteFullline(f"  Quindos: CNVVDA (FIL={OUTPUT_PATH})")
         lw.WriteFullline("=" * 68)
 
     except Exception as e:
