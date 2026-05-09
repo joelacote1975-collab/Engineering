@@ -113,7 +113,7 @@ Quindos cmd : CNVVDA (FIL=D:\CMM_Data\DMIS_export.txt)
 ================================================================================
 
 NX version ที่ใช้ทดสอบ:
-  Part: 5-08978-740000_02_stp_objects.prt
+  Part: XXXX
   Model: 1 body, 317 faces
 
 API ที่ใช้ได้จริงใน NX version นี้:
