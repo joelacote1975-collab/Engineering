@@ -97,6 +97,25 @@ Bug ที่แก้ไขทั้งหมด 3 จุด
   โค้ดหลังแก้:
     f"{fmt_coord(pt['x'],9,3)},{fmt_coord(pt['y'],9,3)},{fmt_coord(pt['z'],9,3)},"
 
+------------------------------------------------------------------------------
+
+[Bug 4] Wrong Quindos Command — ใช้ CNVFIL แทน CNVVDA
+  ไฟล์    : nx_export_dmis_v8.py, development_log.txt
+  บรรทัด  : 266 (nx_export_dmis_v8.py), 13 (development_log.txt)
+
+  ปัญหา:
+    คำสั่ง Quindos ที่แสดงในไฟล์ระบุเป็น CNVFIL ซึ่งไม่ถูกต้อง
+    คำสั่งที่ถูกต้องสำหรับอ่านไฟล์ DMIS format คือ CNVVDA
+
+  การแก้ไข:
+    เปลี่ยน CNVFIL → CNVVDA ทั้งใน script และ development log
+
+  ก่อนแก้:
+    Quindos cmd : CNVFIL (FIL=D:\CMM_Data\DMIS_export.txt)
+
+  หลังแก้:
+    Quindos cmd : CNVVDA (FIL=D:\CMM_Data\DMIS_export.txt)
+
 ==============================================================================
   ไฟล์ที่แก้ไข : nx_export_dmis_v8.py
   แก้ไขโดย    : Claude Code (claude-sonnet-4-6)
