@@ -10,7 +10,7 @@
 แล้ว export เป็นไฟล์ DMIS format สำหรับให้ Quindos CMM อ่านผ่านคำสั่ง CNVFIL
 
 Output file : D:\CMM_Data\DMIS_export.txt
-Quindos cmd : CNVFIL (FIL=D:\CMM_Data\DMIS_export.txt)
+Quindos cmd : CNVVDA (FIL=D:\CMM_Data\DMIS_export.txt)
 
 ================================================================================
   ประวัติการแก้ไข
